@@ -1,7 +1,9 @@
 package com.zzb.rxlocationhelper;
 
-import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.support.v7.app.AppCompatActivity;
+
+import com.zzb.rxlocationhelper.location.RxLocationHelper;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -11,8 +13,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
     }
 
-    void test(){
-        RxLocationHelper helper = RxLocationHelper.newBuilder().updateInterval(1000).keepTracing(true).build();
+    void test() {
+        RxLocationHelper helper = RxLocationHelper.newBuilder(this).updateTimeInterval(1000).keepTracing(true).build();
 
     }
 }
