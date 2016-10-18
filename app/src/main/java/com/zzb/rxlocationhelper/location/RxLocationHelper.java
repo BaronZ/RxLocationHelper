@@ -19,14 +19,20 @@ public class RxLocationHelper implements RequestLocationCallback {
         mLocationModel = new LocationModel(builder, this);
     }
 
-    public Observable<Location> requestLocation() {
+    public Observable<Location> requestLocation(boolean forceUpdate) {
+        // TODO: 2016/10/18 try rxjava timeout
         mLocationModel.requestLocationUpdate();
         return mLocationPublishSubject;
+    }
+
+    public void cancel() {
+        mLocationModel.stopTracing();
     }
 
     public static Builder newBuilder(Context appContext) {
         return new Builder(appContext);
     }
+
 
     @Override
     public void onLocationChanged(Location location) {
@@ -48,6 +54,8 @@ public class RxLocationHelper implements RequestLocationCallback {
         private boolean keepTracing;
         private long updateTimeIntervalInMillis;
         private int updateDistanceInMeters;
+        private boolean tryOtherProviderOnFailed = true;
+        private boolean forceUpdateOnRequest;
 
         public Builder(Context appContext) {
             mContext = appContext.getApplicationContext();
@@ -69,6 +77,42 @@ public class RxLocationHelper implements RequestLocationCallback {
         public Builder updateDistanceInMeters(int meters) {
             this.updateDistanceInMeters = meters;
             return this;
+        }
+
+        //是不是在一个Provider失败的时候，调用另外一个provider
+        public Builder tryOtherProviderOnFailed(boolean tryOtherProvider) {
+            this.tryOtherProviderOnFailed = tryOtherProvider;
+            return this;
+        }
+
+        //是不是在请求更新的时候，不用缓存的位置
+        public Builder forceUpdateOnRequest(boolean forceUpdate) {
+            this.forceUpdateOnRequest = forceUpdate;
+            return this;
+        }
+
+        public Context getContext() {
+            return mContext;
+        }
+
+        public boolean isKeepTracing() {
+            return keepTracing;
+        }
+
+        public long getUpdateTimeIntervalInMillis() {
+            return updateTimeIntervalInMillis;
+        }
+
+        public int getUpdateDistanceInMeters() {
+            return updateDistanceInMeters;
+        }
+
+        public boolean isTryOtherProviderOnFailed() {
+            return tryOtherProviderOnFailed;
+        }
+
+        public boolean isForceUpdateOnRequest() {
+            return forceUpdateOnRequest;
         }
 
         public RxLocationHelper build() {
