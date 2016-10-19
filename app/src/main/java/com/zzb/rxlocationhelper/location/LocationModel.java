@@ -1,17 +1,16 @@
 package com.zzb.rxlocationhelper.location;
 
 import android.content.Context;
-import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.LocationProvider;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
-import android.text.TextUtils;
-import android.util.Log;
 
 import com.zzb.rxlocationhelper.location.RxLocationHelper.Builder;
+import com.zzb.rxlocationhelper.util.FP;
+import com.zzb.rxlocationhelper.util.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -33,8 +32,7 @@ public class LocationModel implements LocationListener {
     private int mFallbackProviderIndex = 0;
     private RxLocationHelper.Builder mBuilder;
     private RequestLocationCallback mRequestLocationCallback;
-    private LocationManager mLocationManager;
-    private Context mAppContext;
+    private ILocationManager mLocationManager;
     private boolean mIsTracingLocation;
     private String mProvider;
     private Location mCacheLocation;
@@ -43,13 +41,12 @@ public class LocationModel implements LocationListener {
     public LocationModel(Builder builder, RequestLocationCallback requestLocationCallback) {
         mBuilder = builder;
         mRequestLocationCallback = requestLocationCallback;
-        mAppContext = builder.getContext().getApplicationContext();
-        initLocation();
+        initLocation(builder.getContext().getApplicationContext());
 
     }
 
-    private void initLocation() {
-        mLocationManager = (LocationManager) mAppContext.getSystemService(Context.LOCATION_SERVICE);
+    private void initLocation(Context context) {
+        mLocationManager = getLocationManager(context);
         List<String> allProviders = mLocationManager.getAllProviders();
         if (allProviders != null) {
             mAllProviders.addAll(allProviders);
@@ -57,7 +54,7 @@ public class LocationModel implements LocationListener {
     }
 
     public void requestLocationUpdate() {
-        Log.d(TAG, "requestLocationUpdate");
+        Logger.debug(TAG, "requestLocationUpdate");
         if (!mIsTracingLocation) {
             _requestLocationUpdate(getFirstProvider());
         }
@@ -65,13 +62,13 @@ public class LocationModel implements LocationListener {
     }
 
     private void _requestLocationUpdate(String provider) {
-        Log.d(TAG, "_requestLocationUpdate");
+        Logger.debug(TAG, "_requestLocationUpdate");
         if (mIsTracingLocation) {
-            Log.d(TAG, "_requestLocationUpdate, is tracing, return");
+            Logger.debug(TAG, "_requestLocationUpdate, is tracing, return");
             return;
         }
         mIsTracingLocation = true;
-        if (TextUtils.isEmpty(provider)) {
+        if (FP.empty(provider)) {
             mIsTracingLocation = false;
             onUpdateLocationFailed(provider);
             return;
@@ -87,7 +84,7 @@ public class LocationModel implements LocationListener {
             mLocationManager.requestLocationUpdates(provider, getUpdateTimeInterval(), getUpdateDistance(), this);
             isRequestUpdateSuccess = true;
         } catch (Exception e) {
-            Log.e(TAG, "_requestLocationUpdate exception", e);
+            Logger.error(TAG, e);
             isRequestUpdateSuccess = false;
         }
         if (isRequestUpdateSuccess) {
@@ -111,17 +108,17 @@ public class LocationModel implements LocationListener {
 
     @Override
     public void onLocationChanged(Location location) {
-        Log.d(TAG, "onLocationChanged");
+        Logger.debug(TAG, "onLocationChanged");
         if (!mIsTracingLocation) {
-            Log.d(TAG, "onLocationChanged but not tracing");
+            Logger.debug(TAG, "onLocationChanged but not tracing");
             return;
         }
         if (location != null) {
-            Log.d(TAG, "onLocationChanged, location:" + location.toString());
+            Logger.debug(TAG, "onLocationChanged, location:" + location.toString());
             mCacheLocation = location;
             mRequestLocationCallback.onLocationChanged(location);
         } else {
-            Log.e(TAG, "onLocationChanged failed");
+            Logger.error(TAG, "onLocationChanged failed");
             onUpdateLocationFailed(null);
         }
         mIsTracingLocation = false;
@@ -129,7 +126,7 @@ public class LocationModel implements LocationListener {
 
     //获取位置失败
     private void onUpdateLocationFailed(String failedProvider) {
-        Log.e(TAG, "onUpdateLocationFailed");
+        Logger.error(TAG, "onUpdateLocationFailed");
         mFailedProviders.add(failedProvider);
         boolean hasTryOtherProvider = tryToUpdateByOtherProviders();
         if (!hasTryOtherProvider) {
@@ -146,7 +143,7 @@ public class LocationModel implements LocationListener {
             return false;
         }
         String provider = getNextValidProvider();
-        if (TextUtils.isEmpty(provider)) {
+        if (FP.empty(provider)) {
             return false;
         } else {
             _requestLocationUpdate(getNextValidProvider());
@@ -156,7 +153,7 @@ public class LocationModel implements LocationListener {
 
     @Override
     public void onStatusChanged(String provider, int status, Bundle extras) {
-        Log.d(TAG, String.format("onStatusChanged, provider: %s, status: %d", provider, status));
+        Logger.debug(TAG, String.format("onStatusChanged, provider: %s, status: %d", provider, status));
         if (status == LocationProvider.OUT_OF_SERVICE) {
             clearIfCacheProviderNotWork(provider);
         }
@@ -164,19 +161,19 @@ public class LocationModel implements LocationListener {
 
     @Override
     public void onProviderEnabled(String provider) {
-        Log.d(TAG, String.format("onStatusChanged, provider: %s", provider));
+        Logger.debug(TAG, String.format("onStatusChanged, provider: %s", provider));
     }
 
     @Override
     public void onProviderDisabled(String provider) {
-        Log.d(TAG, String.format("onProviderDisabled, provider: %s", provider));
+        Logger.debug(TAG, String.format("onProviderDisabled, provider: %s", provider));
         clearIfCacheProviderNotWork(provider);
     }
 
     //如果之前有效的provider被禁用了，清除provider缓存
     private void clearIfCacheProviderNotWork(String notWorkProvider) {
-        Log.d(TAG, String.format("clearIfCacheProviderWorks, notWorkProvider: %s", notWorkProvider));
-        if (TextUtils.equals(notWorkProvider, mProvider)) {
+        Logger.debug(TAG, String.format("clearIfCacheProviderWorks, notWorkProvider: %s", notWorkProvider));
+        if (FP.eq(notWorkProvider, mProvider)) {
             mProvider = null;
         }
     }
@@ -235,16 +232,14 @@ public class LocationModel implements LocationListener {
     }
 
     @Nullable
-    private String getBestProvider() {
-        Criteria criteria = new Criteria();
-        criteria.setAccuracy(Criteria.ACCURACY_FINE);//高精度
-        criteria.setAltitudeRequired(false);//不要求海拔
-        criteria.setBearingRequired(false);//不要求方位
-        criteria.setCostAllowed(false);//是否允许运营商计费
-        criteria.setPowerRequirement(Criteria.POWER_LOW);//低功耗
-        criteria.setSpeedRequired(false);// 是否提供速度信息
-        String locationProvider = mLocationManager.getBestProvider(criteria, true);
-        Log.d(TAG, "getBestProvider: " + locationProvider);
-        return locationProvider;
+    public String getBestProvider() {
+        String bestProvider = mLocationManager.getBestProvider();
+        Logger.debug(TAG, "getBestProvider: " + bestProvider);
+        return bestProvider;
+    }
+
+    private ILocationManager getLocationManager(Context context) {
+        ILocationManager testingManager = mBuilder.getLocationManagerForTesting();
+        return testingManager == null ? new LocationManagerWrapper(context) : testingManager;
     }
 }

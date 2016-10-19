@@ -19,7 +19,7 @@ public class RxLocationHelper implements RequestLocationCallback {
         mLocationModel = new LocationModel(builder, this);
     }
 
-    public Observable<Location> requestLocation(boolean forceUpdate) {
+    public Observable<Location> requestLocation() {
         // TODO: 2016/10/18 try rxjava timeout
         mLocationModel.requestLocationUpdate();
         return mLocationPublishSubject;
@@ -56,6 +56,7 @@ public class RxLocationHelper implements RequestLocationCallback {
         private int updateDistanceInMeters;
         private boolean tryOtherProviderOnFailed = true;
         private boolean forceUpdateOnRequest;
+        private ILocationManager mLocationManagerForTesting;
 
         public Builder(Context appContext) {
             mContext = appContext.getApplicationContext();
@@ -90,29 +91,37 @@ public class RxLocationHelper implements RequestLocationCallback {
             this.forceUpdateOnRequest = forceUpdate;
             return this;
         }
-
-        public Context getContext() {
+        //测试用的，正常代码不要调用
+        public Builder locationManagerForTesting(ILocationManager locationManager){
+            mLocationManagerForTesting = locationManager;
+            return this;
+        }
+        Context getContext() {
             return mContext;
         }
 
-        public boolean isKeepTracing() {
+        boolean isKeepTracing() {
             return keepTracing;
         }
 
-        public long getUpdateTimeIntervalInMillis() {
+        long getUpdateTimeIntervalInMillis() {
             return updateTimeIntervalInMillis;
         }
 
-        public int getUpdateDistanceInMeters() {
+        int getUpdateDistanceInMeters() {
             return updateDistanceInMeters;
         }
 
-        public boolean isTryOtherProviderOnFailed() {
+        boolean isTryOtherProviderOnFailed() {
             return tryOtherProviderOnFailed;
         }
 
-        public boolean isForceUpdateOnRequest() {
+        boolean isForceUpdateOnRequest() {
             return forceUpdateOnRequest;
+        }
+
+        public ILocationManager getLocationManagerForTesting() {
+            return mLocationManagerForTesting;
         }
 
         public RxLocationHelper build() {
