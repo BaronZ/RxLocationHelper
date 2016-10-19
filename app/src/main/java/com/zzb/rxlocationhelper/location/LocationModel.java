@@ -117,6 +117,7 @@ public class LocationModel implements LocationListener {
             Logger.debug(TAG, "onLocationChanged, location:" + location.toString());
             mCacheLocation = location;
             mRequestLocationCallback.onLocationChanged(location);
+            stopTracingIfNeeded();
         } else {
             Logger.error(TAG, "onLocationChanged failed");
             onUpdateLocationFailed(null);
@@ -132,9 +133,14 @@ public class LocationModel implements LocationListener {
         if (!hasTryOtherProvider) {
             mRequestLocationCallback.onGetLocationFailed();
             mIsTracingLocation = false;
+            stopTracingIfNeeded();
         }
     }
-
+    private void stopTracingIfNeeded() {
+        if(!mBuilder.isKeepTracing()){
+            stopTracing();
+        }
+    }
     /**
      * @return true 有用其他Provider重新请求Location, 否则返回false
      */

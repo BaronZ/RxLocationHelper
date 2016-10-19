@@ -7,17 +7,35 @@ import rx.Observable;
 import rx.subjects.PublishSubject;
 
 /**
+ * 使用：
+ * RxLocationHelper helper = RxLocationHelper.newBuilder(context).build();
+ * helper.requestLocation().subscribe(/handle on success and on failed/);
+ * <p>
  * Created by ZZB on 2016/10/17.
  */
 
-public class RxLocationHelper implements RequestLocationCallback {
+public class RxLocationHelper {
     private static final String TAG = "RxLocationHelper";
     private PublishSubject<Location> mLocationPublishSubject = PublishSubject.create();
     private LocationModel mLocationModel;
+    private RequestLocationCallback mRequestLocationCallback;
 
     private RxLocationHelper(Builder builder) {
-        mLocationModel = new LocationModel(builder, this);
+        mRequestLocationCallback = new RequestLocationCallback() {
+            @Override
+            public void onLocationChanged(Location location) {
+                onGetLocationSuccess(location);
+            }
+
+            @Override
+            public void onGetLocationFailed() {
+                RxLocationHelper.this.onGetLocationFailed();
+            }
+        };
+
+        mLocationModel = new LocationModel(builder, mRequestLocationCallback);
     }
+
 
     public Observable<Location> requestLocation() {
         // TODO: 2016/10/18 try rxjava timeout
@@ -33,9 +51,7 @@ public class RxLocationHelper implements RequestLocationCallback {
         return new Builder(appContext);
     }
 
-
-    @Override
-    public void onLocationChanged(Location location) {
+    private void onGetLocationSuccess(Location location) {
         if (location != null) {
             mLocationPublishSubject.onNext(location);
         } else {
@@ -43,19 +59,17 @@ public class RxLocationHelper implements RequestLocationCallback {
         }
     }
 
-    @Override
-    public void onGetLocationFailed() {
+    private void onGetLocationFailed() {
         mLocationPublishSubject.onError(new Exception("get location failed"));
     }
 
-
     public static class Builder {
         private Context mContext;
-        private boolean keepTracing;
+        private boolean keepTracing = false;
         private long updateTimeIntervalInMillis;
         private int updateDistanceInMeters;
         private boolean tryOtherProviderOnFailed = true;
-        private boolean forceUpdateOnRequest;
+        private boolean forceUpdateOnRequest = false;
         private ILocationManager mLocationManagerForTesting;
 
         public Builder(Context appContext) {
@@ -91,11 +105,13 @@ public class RxLocationHelper implements RequestLocationCallback {
             this.forceUpdateOnRequest = forceUpdate;
             return this;
         }
+
         //测试用的，正常代码不要调用
-        public Builder locationManagerForTesting(ILocationManager locationManager){
+        public Builder locationManagerForTesting(ILocationManager locationManager) {
             mLocationManagerForTesting = locationManager;
             return this;
         }
+
         Context getContext() {
             return mContext;
         }
