@@ -55,9 +55,11 @@ public class LocationModel implements LocationListener {
 
     public void requestLocationUpdate() {
         Logger.debug(TAG, "requestLocationUpdate");
-        if (!mIsTracingLocation) {
-            _requestLocationUpdate(getFirstProvider());
+        if (mIsTracingLocation) {
+            Logger.debug(TAG, "requestLocationUpdate, is tracing, return");
+            return;
         }
+        _requestLocationUpdate(getFirstProvider());
 
     }
 
@@ -136,11 +138,13 @@ public class LocationModel implements LocationListener {
             stopTracingIfNeeded();
         }
     }
+
     private void stopTracingIfNeeded() {
-        if(!mBuilder.isKeepTracing()){
+        if (!mBuilder.isKeepTracing()) {
             stopTracing();
         }
     }
+
     /**
      * @return true 有用其他Provider重新请求Location, 否则返回false
      */

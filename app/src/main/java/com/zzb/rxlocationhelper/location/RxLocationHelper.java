@@ -4,6 +4,7 @@ import android.content.Context;
 import android.location.Location;
 
 import rx.Observable;
+import rx.Observer;
 import rx.subjects.PublishSubject;
 
 /**
