@@ -32,9 +32,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     public void onClick(View v) {
         counter = 0;
         request();
-        request();
-        request();
-        request();
+//        request();
+//        request();
+//        request();
     }
 
     private void request() {

@@ -16,6 +16,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import rx.subjects.PublishSubject;
 
 /**
  * Created by ZZB on 2016/10/18.
@@ -34,15 +38,16 @@ public class LocationModel implements LocationListener {
     private RequestLocationCallback mRequestLocationCallback;
     private ILocationManager mLocationManager;
     private boolean mIsTracingLocation;
-    private String mProvider;
     private Location mCacheLocation;
     private List<String> mAllProviders = new ArrayList<>();
+    private PublishSubject<Location> mLocationPublishSubject = PublishSubject.create();
+    private String mLastUsefulProvider;//上一次可用的Provider
+    private String mCurrentUsingProvider;//现在正在用的Provider
 
     public LocationModel(Builder builder, RequestLocationCallback requestLocationCallback) {
         mBuilder = builder;
         mRequestLocationCallback = requestLocationCallback;
         initLocation(builder.getContext().getApplicationContext());
-
     }
 
     private void initLocation(Context context) {
@@ -55,24 +60,32 @@ public class LocationModel implements LocationListener {
 
     public void requestLocationUpdate() {
         Logger.debug(TAG, "requestLocationUpdate");
-        if (mIsTracingLocation) {
-            Logger.debug(TAG, "requestLocationUpdate, is tracing, return");
-            return;
+        if (!mIsTracingLocation) {
+            _requestLocationUpdate(getFirstProvider());
+        } else {
+            Logger.info(TAG, "requestLocationUpdate, is tracing location");
         }
-        _requestLocationUpdate(getFirstProvider());
 
     }
 
+    public void stopTracing() {
+        Logger.info(TAG, "stopTracing");
+        setIsTracingLocation(mIsTracingLocation);
+        mLocationManager.removeUpdates(this);
+    }
+
     private void _requestLocationUpdate(String provider) {
-        Logger.debug(TAG, "_requestLocationUpdate");
+        Logger.debug(TAG, "_requestLocationUpdate:" + provider);
         if (mIsTracingLocation) {
             Logger.debug(TAG, "_requestLocationUpdate, is tracing, return");
             return;
         }
-        mIsTracingLocation = true;
+        mCurrentUsingProvider = provider;
+        setIsTracingLocation(true);
+        subscribeLocationUpdate();
         if (FP.empty(provider)) {
-            mIsTracingLocation = false;
-            onUpdateLocationFailed(provider);
+//            onUpdateLocationFailed(provider);
+            mLocationPublishSubject.onError(new TraceLocationException());
             return;
         }
         boolean isRequestUpdateSuccess = false;
@@ -92,16 +105,35 @@ public class LocationModel implements LocationListener {
         if (isRequestUpdateSuccess) {
 //            mIsTracingLocation = true;
         } else {
-            mIsTracingLocation = false;
-            onUpdateLocationFailed(provider);
+//            onUpdateLocationFailed(provider);
+            mLocationPublishSubject.onError(new TraceLocationException());
         }
 
     }
 
-    public void stopTracing() {
-        mIsTracingLocation = false;
-        mLocationManager.removeUpdates(this);
+    private void subscribeLocationUpdate() {
+        long timeout = Math.max(0, mBuilder.getRequestUpdateTimeoutInMillis());
+        mLocationPublishSubject.timeout(timeout, TimeUnit.MILLISECONDS)
+                .subscribe(this::onSubscribeSuccess, this::onSubscribeFailed);
     }
+
+    private void onSubscribeFailed(Throwable throwable) {
+        Logger.error(TAG, "onSubscribeFailed:" + throwable);
+        if (throwable instanceof TraceLocationException) {
+            onUpdateLocationFailed(mCurrentUsingProvider);
+        } else if (throwable instanceof TimeoutException) {//超时
+            Logger.error(TAG, "request timeout");
+            onUpdateLocationFailed(mCurrentUsingProvider);
+        } else {
+            onUpdateLocationFailed(mCurrentUsingProvider);
+        }
+    }
+
+    private void onSubscribeSuccess(Location location) {
+        mRequestLocationCallback.onLocationChanged(location);
+        setIsTracingLocation(false);
+    }
+
 
     private boolean canUseCache() {
         return !mBuilder.isForceUpdateOnRequest() && mCacheLocation != null;
@@ -118,23 +150,31 @@ public class LocationModel implements LocationListener {
         if (location != null) {
             Logger.debug(TAG, "onLocationChanged, location:" + location.toString());
             mCacheLocation = location;
-            mRequestLocationCallback.onLocationChanged(location);
+            mLocationPublishSubject.onNext(location);
+            mLastUsefulProvider = location.getProvider();
+            setIsTracingLocation(false);
+//            mRequestLocationCallback.onLocationChanged(location);
             stopTracingIfNeeded();
         } else {
             Logger.error(TAG, "onLocationChanged failed");
-            onUpdateLocationFailed(null);
+            mLocationPublishSubject.onError(new TraceLocationException());
+//            onUpdateLocationFailed(null);
         }
-        mIsTracingLocation = false;
     }
 
     //获取位置失败
     private void onUpdateLocationFailed(String failedProvider) {
-        Logger.error(TAG, "onUpdateLocationFailed");
+        Logger.error(TAG, "onUpdateLocationFailed, provider:" + failedProvider);
+        if (!mIsTracingLocation) {
+            Logger.info(TAG, "onUpdateLocationFailed, not tracing");
+            return;
+        }
         mFailedProviders.add(failedProvider);
+        setIsTracingLocation(false);
         boolean hasTryOtherProvider = tryToUpdateByOtherProviders();
         if (!hasTryOtherProvider) {
+            mFallbackProviderIndex = 0;
             mRequestLocationCallback.onGetLocationFailed();
-            mIsTracingLocation = false;
             stopTracingIfNeeded();
         }
     }
@@ -156,7 +196,7 @@ public class LocationModel implements LocationListener {
         if (FP.empty(provider)) {
             return false;
         } else {
-            _requestLocationUpdate(getNextValidProvider());
+            _requestLocationUpdate(provider);
             return true;
         }
     }
@@ -176,15 +216,16 @@ public class LocationModel implements LocationListener {
 
     @Override
     public void onProviderDisabled(String provider) {
-        Logger.debug(TAG, String.format("onProviderDisabled, provider: %s", provider));
+        Logger.debug(TAG, String.format("onProviderDisabled, provider: %s, currentUsingProvider: %s", provider, mCurrentUsingProvider));
         clearIfCacheProviderNotWork(provider);
+        mLocationPublishSubject.onError(new TraceLocationException());
     }
 
     //如果之前有效的provider被禁用了，清除provider缓存
     private void clearIfCacheProviderNotWork(String notWorkProvider) {
         Logger.debug(TAG, String.format("clearIfCacheProviderWorks, notWorkProvider: %s", notWorkProvider));
-        if (FP.eq(notWorkProvider, mProvider)) {
-            mProvider = null;
+        if (FP.eq(notWorkProvider, mLastUsefulProvider)) {
+            mLastUsefulProvider = null;
         }
     }
 
@@ -197,20 +238,25 @@ public class LocationModel implements LocationListener {
     }
 
     private String getNextValidProvider() {
+        Logger.info(TAG, "getNextValidProvider, index:" + mFallbackProviderIndex);
         if (!hasValidProviders()) {
             return null;
         } else {
             if (mFallbackProviderIndex < FALLBACK_PROVIDERS.length) {
                 boolean isGetIndexSuccess = true;
+                //如果不是有效的provider或者已经是失败的provider，就取下一个provider
                 while (!isValidProvider(FALLBACK_PROVIDERS[mFallbackProviderIndex]) || mFailedProviders.contains(FALLBACK_PROVIDERS[mFallbackProviderIndex])) {
                     mFallbackProviderIndex++;
+                    Logger.info(TAG, "fallback index:" + mFallbackProviderIndex);
                     if (mFallbackProviderIndex >= FALLBACK_PROVIDERS.length) {
                         isGetIndexSuccess = false;
                         break;
                     }
                 }
                 if (isGetIndexSuccess) {
-                    return FALLBACK_PROVIDERS[mFallbackProviderIndex];
+                    String fallbackProvider = FALLBACK_PROVIDERS[mFallbackProviderIndex];
+                    mFallbackProviderIndex++;
+                    return fallbackProvider;
                 }
             }
             return null;
@@ -227,6 +273,9 @@ public class LocationModel implements LocationListener {
         if (!hasValidProviders()) {
             return null;
         } else {
+            if (!FP.empty(mLastUsefulProvider)) {
+                return mLastUsefulProvider;
+            }
             String bestProvider = getBestProvider();
             if (isValidProvider(bestProvider)) {
                 return bestProvider;
@@ -251,5 +300,10 @@ public class LocationModel implements LocationListener {
     private ILocationManager getLocationManager(Context context) {
         ILocationManager testingManager = mBuilder.getLocationManagerForTesting();
         return testingManager == null ? new LocationManagerWrapper(context) : testingManager;
+    }
+
+    private void setIsTracingLocation(boolean isTracingLocation) {
+        Logger.info(TAG, "setIsTracingLocation: " + isTracingLocation);
+        mIsTracingLocation = isTracingLocation;
     }
 }

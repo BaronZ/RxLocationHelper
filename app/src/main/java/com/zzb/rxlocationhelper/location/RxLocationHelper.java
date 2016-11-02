@@ -4,7 +4,6 @@ import android.content.Context;
 import android.location.Location;
 
 import rx.Observable;
-import rx.Observer;
 import rx.subjects.PublishSubject;
 
 /**
@@ -12,6 +11,7 @@ import rx.subjects.PublishSubject;
  * RxLocationHelper helper = RxLocationHelper.newBuilder(context).build();
  * helper.requestLocation().subscribe(/handle on success and on failed/);
  * <p>
+ * keepTracing为true, 不需要的时候要调用stopTracing，不然可能导致内存泄露
  * Created by ZZB on 2016/10/17.
  */
 
@@ -39,12 +39,11 @@ public class RxLocationHelper {
 
 
     public Observable<Location> requestLocation() {
-        // TODO: 2016/10/18 try rxjava timeout
         mLocationModel.requestLocationUpdate();
         return mLocationPublishSubject;
     }
 
-    public void cancel() {
+    public void stopTracing() {
         mLocationModel.stopTracing();
     }
 
@@ -72,6 +71,7 @@ public class RxLocationHelper {
         private boolean tryOtherProviderOnFailed = true;
         private boolean forceUpdateOnRequest = false;
         private ILocationManager mLocationManagerForTesting;
+        private long requestUpdateTimeoutInMillis = 4000;//默认4秒没拿到地址超时
 
         public Builder(Context appContext) {
             mContext = appContext.getApplicationContext();
@@ -107,6 +107,11 @@ public class RxLocationHelper {
             return this;
         }
 
+        //请求超时，如果超时没有回调，强行回调onUpdateLocationFailed
+        public void requestUpdateTimeoutInMillis(long requestUpdateTimeoutInMillis) {
+            this.requestUpdateTimeoutInMillis = requestUpdateTimeoutInMillis;
+        }
+
         //测试用的，正常代码不要调用
         public Builder locationManagerForTesting(ILocationManager locationManager) {
             mLocationManagerForTesting = locationManager;
@@ -135,6 +140,10 @@ public class RxLocationHelper {
 
         boolean isForceUpdateOnRequest() {
             return forceUpdateOnRequest;
+        }
+
+        long getRequestUpdateTimeoutInMillis() {
+            return requestUpdateTimeoutInMillis;
         }
 
         public ILocationManager getLocationManagerForTesting() {
